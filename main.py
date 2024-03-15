@@ -18,36 +18,41 @@ from langchain.chains.history_aware_retriever import create_history_aware_retrie
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.prompts import MessagesPlaceholder
 
-from vector_store import create_vector_store, get_db
+from vector_store import VectorStore
 
 def create_chain(api_key):
     langchain_documents = []
     split_texts = []
     database_name = "db"
     collection_name = "default"
-    docs = find_ext(".", "pdf")
-    for i, textbook in enumerate(docs):
-        loader = PDFMinerLoader(textbook)
-        print("Loading document {}...".format(i + 1))
-        pages = loader.load()
-        langchain_documents += pages
+    vs = VectorStore(os.getenv("mongodb_conn_str"), database_name, collection_name)
 
-    for doc in langchain_documents:
-        splitter = RecursiveCharacterTextSplitter(
-            chunk_size=4000,
-            chunk_overlap=200
-        )
-        document_boi = Document(
-            page_content = doc.page_content,
-            metatdata={
-                "source": "local"
-            }
-        )
-        splitDocs = splitter.split_documents([document_boi])
-        split_texts += splitDocs
+    if vs.collection_is_empty():
+        docs = find_ext(".", "pdf")
+        for i, textbook in enumerate(docs):
+            loader = PDFMinerLoader(textbook)
+            print("Loading document {}...".format(i + 1))
+            pages = loader.load()
+            langchain_documents += pages
 
-    collection = get_db(os.getenv('mongodb_conn_str'), database_name)[collection_name]
-    vector_store = create_vector_store(collection, "default", split_texts)
+        for doc in langchain_documents:
+            splitter = RecursiveCharacterTextSplitter(
+                chunk_size=4000,
+                chunk_overlap=200
+            )
+            document_boi = Document(
+                page_content = doc.page_content,
+                metatdata={
+                    "source": "local"
+                }
+            )
+            splitDocs = splitter.split_documents([document_boi])
+            split_texts += splitDocs
+
+        vector_store = vs.create_vector_store("default", split_texts)
+    else:
+        print("data is already in collection, searching now")
+        vector_store = vs.create_vector_search()
 
     llm = ChatOpenAI(
         model="gpt-3.5-turbo",
@@ -99,9 +104,6 @@ def process_chat(chain, question, chat_history):
 def find_ext(dr, ext):
     return glob(path.join(dr,"*.{}".format(ext)))
 
-def wait(waiting_time):
-    print("Sleeping for {} seconds due to OpenAI API limits...".format(waiting_time))
-    sleep(waiting_time)
 
 if __name__ == "__main__":
     load_dotenv()
