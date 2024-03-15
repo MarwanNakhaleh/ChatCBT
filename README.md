@@ -4,12 +4,16 @@
 This is ChatCBT, an AI chatbot able to train on any number of psychology texts in the form of PDFs and then chat with you based on what you ask it.
 
 # Installation
+* [Create a MongoDB cluster](https://www.mongodb.com/docs/atlas/tutorial/deploy-free-tier-cluster/)
+* Go to your clusters. You should see a page similar to this:
+![clusters_page.png](./clusters_page.png)
 * Create a .env file with your OpenAI API key stored in a variable called `api_key`.
 * Run the following commands in the root directory of the project:
 
 ```bash
 python -m venv .
 source bin/activate
+python vector_store.py
 python main.py
 ```
 

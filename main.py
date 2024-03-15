@@ -12,27 +12,27 @@ from langchain.chains import create_retrieval_chain
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_community.document_loaders import PDFMinerLoader
-from langchain_community.vectorstores.faiss import FAISS
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_openai import ChatOpenAI
 
 from langchain.chains.history_aware_retriever import create_history_aware_retriever
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.prompts import MessagesPlaceholder
 
+from vector_store import create_vector_store, get_db
+
 def create_chain(api_key):
     langchain_documents = []
+    split_texts = []
+    database_name = "db"
+    collection_name = "default"
     docs = find_ext(".", "pdf")
-    waiting_time = 30
-    max_doc_arr_size = 500
     for i, textbook in enumerate(docs):
         loader = PDFMinerLoader(textbook)
         print("Loading document {}...".format(i + 1))
         pages = loader.load()
         langchain_documents += pages
 
-    vector_store = create_vector_store(langchain_documents[0])
-
-    for i, doc in enumerate(langchain_documents[1:]):
+    for doc in langchain_documents:
         splitter = RecursiveCharacterTextSplitter(
             chunk_size=4000,
             chunk_overlap=200
@@ -44,24 +44,10 @@ def create_chain(api_key):
             }
         )
         splitDocs = splitter.split_documents([document_boi])
-        num_docs = len(splitDocs)
-        print("Adding chunk {} to vector store...".format(i + 1))
-        if num_docs <= max_doc_arr_size:
-            vector_store.add_documents(splitDocs)
-            wait(waiting_time)
-        else:
-            arr_index = 0
-            subchunk_number = 1
-            while arr_index < num_docs:
-                print("Adding subchunk {} to vector store...".format(subchunk_number))
-                if arr_index + max_doc_arr_size > num_docs:
-                    vector_store.add_documents(splitDocs[arr_index:num_docs])
-                else:
-                    vector_store.add_documents(splitDocs[arr_index:arr_index + max_doc_arr_size])
-                arr_index += max_doc_arr_size
-                subchunk_number += 1
-                wait(waiting_time)
-                
+        split_texts += splitDocs
+
+    collection = get_db(os.getenv('mongodb_conn_str'), database_name)[collection_name]
+    vector_store = create_vector_store(collection, "default", split_texts)
 
     llm = ChatOpenAI(
         model="gpt-3.5-turbo",
@@ -94,10 +80,10 @@ def create_chain(api_key):
     retrieval_chain = create_retrieval_chain(history_aware_retriever, chain)
     return retrieval_chain
 
-def create_vector_store(docs):
-    embedding = OpenAIEmbeddings()
-    vector_store = FAISS.from_documents([docs], embedding=embedding)
-    return vector_store
+# def create_vector_store(docs):
+#     embedding = OpenAIEmbeddings()
+#     vector_store = FAISS.from_documents([docs], embedding=embedding)
+#     return vector_store
 
 def process_chat(chain, question, chat_history):
     response = chain.invoke({
