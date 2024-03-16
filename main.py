@@ -1,6 +1,6 @@
+import sys
 import os
 from os import path
-from time import sleep
 
 from glob import glob  
 from dotenv import load_dotenv
@@ -8,11 +8,12 @@ from dotenv import load_dotenv
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.docstore.document import Document
 
-from langchain.chains import create_retrieval_chain
+from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
+from langchain.chains import LLMChain, create_retrieval_chain
 from langchain.chains.combine_documents import create_stuff_documents_chain
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.prompts import PromptTemplate, ChatPromptTemplate
 from langchain_community.document_loaders import PDFMinerLoader
-from langchain_openai import ChatOpenAI
+from langchain_community.llms import GPT4All
 
 from langchain.chains.history_aware_retriever import create_history_aware_retriever
 from langchain_core.messages import HumanMessage, AIMessage
@@ -20,12 +21,10 @@ from langchain_core.prompts import MessagesPlaceholder
 
 from vector_store import VectorStore
 
-def create_chain(api_key):
+def create_chain(vs, model_path, context):
     langchain_documents = []
     split_texts = []
-    database_name = "db"
-    collection_name = "default"
-    vs = VectorStore(os.getenv("mongodb_conn_str"), database_name, collection_name)
+    callbacks = [StreamingStdOutCallbackHandler()]
 
     if vs.collection_is_empty():
         docs = find_ext(".", "pdf")
@@ -54,18 +53,20 @@ def create_chain(api_key):
         print("data is already in collection, searching now")
         vector_store = vs.create_vector_search()
 
-    llm = ChatOpenAI(
-        model="gpt-3.5-turbo",
-        temperature=0.5,
+    llm = GPT4All(
+        model=model_path,
+        backend="gptj",
+        callbacks=callbacks,
         verbose=True,
-        max_tokens=4096,
-        api_key=api_key
     )
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", "You are a cognitive behavioral therapist. More context: {context}"),
-        MessagesPlaceholder(variable_name="chat_history"),
-        ("human", "{input}")
-    ])
+    template = """Context: {context}
+    
+    Question: {input}
+
+    Answer: Let's think step by step."""
+
+    prompt = PromptTemplate.from_template(template)
+    
     chain = create_stuff_documents_chain(
         llm=llm,
         prompt=prompt
@@ -85,12 +86,9 @@ def create_chain(api_key):
     retrieval_chain = create_retrieval_chain(history_aware_retriever, chain)
     return retrieval_chain
 
-# def create_vector_store(docs):
-#     embedding = OpenAIEmbeddings()
-#     vector_store = FAISS.from_documents([docs], embedding=embedding)
-#     return vector_store
-
-def process_chat(chain, question, chat_history):
+def process_chat(chain, question, chat_history, vector_store):
+    print("processing chat...")
+    # docs = vector_store.similarity_search(question)
     response = chain.invoke({
         "chat_history": chat_history,
         "input": question,
@@ -106,18 +104,22 @@ def find_ext(dr, ext):
 
 
 if __name__ == "__main__":
+    context = input("What is the role of the GPT?: ")
+    if 'exit' in context.lower():
+        sys.exit(0)
     load_dotenv()
-    api_key = os.getenv('api_key')
+    database_name = "db"
+    collection_name = "default"
+    vs = VectorStore(os.getenv("mongodb_conn_str"), database_name, collection_name)
     
-    chain = create_chain(api_key)
+    chain = create_chain(vs, ("./openassistant-llama2-13b-orca-8k-3319.Q4_K_S.gguf"), context)
 
     chat_history = []
 
     while True:
-        user_input = input("You: ")
-        if user_input.lower() == 'exit':
+        user_input = input("What is your question?: ")
+        if 'exit' in user_input.lower():
             break
-        response = process_chat(chain, user_input, chat_history)
+        response = process_chat(chain, user_input, chat_history, vs.vector_store)
         chat_history.append(HumanMessage(content=user_input))
         chat_history.append(AIMessage(content=response))
-        print("Assistant: ", response)

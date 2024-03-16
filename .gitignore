@@ -166,3 +166,5 @@ cython_debug/
 
 *.pdf
 personal.py
+*.gguf
+.DS_Store

@@ -14,6 +14,7 @@ class VectorStore:
     collection = None
     db_name = ""
     collection_name = ""
+    vector_store = None
 
     def __init__(self, connection_string, db_name, collection_name):
         self.connection_string = connection_string
@@ -24,23 +25,25 @@ class VectorStore:
         self.collection = self.db[collection_name]
 
     def create_vector_store(self, index, docs):
-        embedding = OpenAIEmbeddings()
-        vector_store = MongoDBAtlasVectorSearch.from_documents(
-            documents=docs, 
-            embedding=embedding,
-            collection=self.collection,
-            index_name=index
-        )
-        return vector_store
+        if self.vector_store == None:
+            embedding = OpenAIEmbeddings()
+            self.vector_store = MongoDBAtlasVectorSearch.from_documents(
+                documents=docs, 
+                embedding=embedding,
+                collection=self.collection,
+                index_name=index
+            )
+        return self.vector_store
 
     def create_vector_search(self):
-        vector_search = MongoDBAtlasVectorSearch.from_connection_string(
-            os.getenv('mongodb_conn_str'),
-            f"{self.db_name}.{self.collection_name}",
-            OpenAIEmbeddings(),
-            index_name="default"
-        )
-        return vector_search
+        if self.vector_store == None:
+            self.vector_store = MongoDBAtlasVectorSearch.from_connection_string(
+                os.getenv('mongodb_conn_str'),
+                f"{self.db_name}.{self.collection_name}",
+                OpenAIEmbeddings(),
+                index_name="default"
+            )
+        return self.vector_store
     
     def collection_is_empty(self):
         return self.collection.count() == 0
