@@ -1,6 +1,5 @@
 import sys
 import os
-from os import path
 
 from glob import glob  
 from dotenv import load_dotenv
@@ -9,7 +8,7 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.docstore.document import Document
 
 from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
-from langchain.chains import LLMChain, create_retrieval_chain
+from langchain.chains import create_retrieval_chain
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain_core.prompts import PromptTemplate, ChatPromptTemplate
 from langchain_community.document_loaders import PDFMinerLoader
@@ -21,7 +20,7 @@ from langchain_core.prompts import MessagesPlaceholder
 
 from vector_store import VectorStore
 
-def create_chain(vs, model_path, context):
+def create_chain(vs, model_path):
     langchain_documents = []
     split_texts = []
     callbacks = [StreamingStdOutCallbackHandler()]
@@ -50,7 +49,7 @@ def create_chain(vs, model_path, context):
 
         vector_store = vs.create_vector_store("default", split_texts)
     else:
-        print("data is already in collection, searching now")
+        print("data is already in collection, searching now...")
         vector_store = vs.create_vector_search()
 
     llm = GPT4All(
@@ -86,12 +85,13 @@ def create_chain(vs, model_path, context):
     retrieval_chain = create_retrieval_chain(history_aware_retriever, chain)
     return retrieval_chain
 
-def process_chat(chain, question, chat_history, vector_store):
+def process_chat(chain, question, context, chat_history, vector_store):
     print("processing chat...")
     # docs = vector_store.similarity_search(question)
     response = chain.invoke({
         "chat_history": chat_history,
         "input": question,
+        "context": context
     })
     try:
         return response["answer"]
@@ -100,7 +100,7 @@ def process_chat(chain, question, chat_history, vector_store):
         return None
 
 def find_ext(dr, ext):
-    return glob(path.join(dr,"*.{}".format(ext)))
+    return glob(os.path.join(dr,"*.{}".format(ext)))
 
 
 if __name__ == "__main__":
@@ -112,7 +112,7 @@ if __name__ == "__main__":
     collection_name = "default"
     vs = VectorStore(os.getenv("mongodb_conn_str"), database_name, collection_name)
     
-    chain = create_chain(vs, ("./openassistant-llama2-13b-orca-8k-3319.Q4_K_S.gguf"), context)
+    chain = create_chain(vs, ("./openassistant-llama2-13b-orca-8k-3319.Q4_K_S.gguf"))
 
     chat_history = []
 
@@ -120,6 +120,6 @@ if __name__ == "__main__":
         user_input = input("What is your question?: ")
         if 'exit' in user_input.lower():
             break
-        response = process_chat(chain, user_input, chat_history, vs.vector_store)
+        response = process_chat(chain, user_input, context, chat_history, vs.vector_store)
         chat_history.append(HumanMessage(content=user_input))
         chat_history.append(AIMessage(content=response))
